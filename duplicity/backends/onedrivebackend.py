@@ -62,9 +62,15 @@ class OneDriveBackend(duplicity.backend.Backend):
 
     def _put(self, source_path, remote_filename):
         remote_path = os.path.join(urllib.unquote(self.parsed_url.path.lstrip('/'))).rstrip()
-        commandline = "ln -s %s /tmp/dupli-onedrive/%s && onedrive-cli put '%s/%s' '%s' && rm /tmp/dupli-onedrive/%s" % \
-            (source_path.name, remote_filename, self.tempname, remote_filename, remote_path, remote_filename)
-        self.subprocess_popen(commandline)
+        commandline = "ln -s %s /tmp/dupli-onedrive/%s && onedrive-cli put '%s/%s' '%s'" % \
+            (source_path.name, remote_filename, self.tempname, remote_filename, remote_path)
+        try:
+            self.subprocess_popen(commandline)
+        except Exception as exc:
+            commandline = "[ -f /tmp/dupli-onedrive/%s ] && rm /tmp/dupli-onedrive/%s" % \
+            (remote_filename, remote_filename)
+            self.subprocess_popen(commandline)
+            raise exc
 
     def _get(self, remote_filename, local_path):
         remote_path = os.path.join(urllib.unquote(self.parsed_url.path), remote_filename).rstrip()
