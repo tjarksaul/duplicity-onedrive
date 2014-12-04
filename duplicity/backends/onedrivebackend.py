@@ -88,7 +88,7 @@ class OneDriveBackend(duplicity.backend.Backend):
 
     def __del__(self):
         try:
-            p = os.popen("rmdir /tmp/dupli-onedrive/")
+            p = os.popen("rm -rf /tmp/dupli-onedrive/")
             fout = p.read()
             ret = p.close()
         except Exception:
