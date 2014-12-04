@@ -1,0 +1,109 @@
+# -*- Mode:Python; indent-tabs-mode:nil; tab-width:4 -*-
+#
+# Copyright 2013 Matthieu Huin <mhu@enovance.com>
+#
+# This file is part of duplicity.
+#
+# Duplicity is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 2 of the License, or (at your
+# option) any later version.
+#
+# Duplicity is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with duplicity; if not, write to the Free Software Foundation,
+# Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+
+import os
+
+import duplicity.backend
+from duplicity import log
+from duplicity import util
+from duplicity.errors import BackendException
+
+
+class SwiftBackend(duplicity.backend.Backend):
+    """
+    Backend for Swift
+    """
+    def __init__(self, parsed_url):
+        try:
+            from swiftclient import Connection
+            from swiftclient import ClientException
+        except ImportError:
+            raise BackendException("This backend requires "
+                                   "the python-swiftclient library.")
+
+        self.resp_exc = ClientException
+        conn_kwargs = {}
+
+        # if the user has already authenticated
+        if 'SWIFT_PREAUTHURL' in os.environ and 'SWIFT_PREAUTHTOKEN' in os.environ:
+            conn_kwargs['preauthurl'] = os.environ['SWIFT_PREAUTHURL']
+            conn_kwargs['preauthtoken'] = os.environ['SWIFT_PREAUTHTOKEN']           
+        
+        else:
+            if 'SWIFT_USERNAME' not in os.environ:
+                raise BackendException('SWIFT_USERNAME environment variable '
+                                       'not set.')
+
+            if 'SWIFT_PASSWORD' not in os.environ:
+                raise BackendException('SWIFT_PASSWORD environment variable '
+                                       'not set.')
+
+            if 'SWIFT_AUTHURL' not in os.environ:
+                raise BackendException('SWIFT_AUTHURL environment variable '
+                                       'not set.')
+
+            conn_kwargs['user'] = os.environ['SWIFT_USERNAME']
+            conn_kwargs['key'] = os.environ['SWIFT_PASSWORD']
+            conn_kwargs['authurl'] = os.environ['SWIFT_AUTHURL']
+
+        if 'SWIFT_AUTHVERSION' in os.environ:
+            conn_kwargs['auth_version'] = os.environ['SWIFT_AUTHVERSION']
+        else:
+            conn_kwargs['auth_version'] = '1'
+        if 'SWIFT_TENANTNAME' in os.environ:
+            conn_kwargs['tenant_name'] = os.environ['SWIFT_TENANTNAME']
+            
+        self.container = parsed_url.path.lstrip('/')
+
+        try:
+            self.conn = Connection(**conn_kwargs)
+            self.conn.put_container(self.container)
+        except Exception as e:
+            log.FatalError("Connection failed: %s %s"
+                           % (e.__class__.__name__, util.uexc(e)),
+                           log.ErrorCode.connection_failed)
+
+    def _error_code(self, operation, e):
+        if isinstance(e, self.resp_exc):
+            if e.http_status == 404:
+                return log.ErrorCode.backend_not_found
+
+    def _put(self, source_path, remote_filename):
+        self.conn.put_object(self.container, remote_filename,
+                             file(source_path.name))
+
+    def _get(self, remote_filename, local_path):
+        headers, body = self.conn.get_object(self.container, remote_filename)
+        with open(local_path.name, 'wb') as f:
+            for chunk in body:
+                f.write(chunk)
+
+    def _list(self):
+        headers, objs = self.conn.get_container(self.container)
+        return [ o['name'] for o in objs ]
+
+    def _delete(self, filename):
+        self.conn.delete_object(self.container, filename)
+
+    def _query(self, filename):
+        sobject = self.conn.head_object(self.container, filename)
+        return {'size': int(sobject['content-length'])}
+
+duplicity.backend.register_backend("swift", SwiftBackend)
