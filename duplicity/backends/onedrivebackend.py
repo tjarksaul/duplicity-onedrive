@@ -64,12 +64,15 @@ class OneDriveBackend(duplicity.backend.Backend):
         remote_path = os.path.join(urllib.unquote(self.parsed_url.path.lstrip('/'))).rstrip()
         commandline = "ln -s %s /tmp/dupli-onedrive/%s && onedrive-cli put '%s/%s' '%s'" % \
             (source_path.name, remote_filename, self.tempname, remote_filename, remote_path)
+        commandline2 = "[ -f /tmp/dupli-onedrive/%s ] && rm /tmp/dupli-onedrive/%s" % \
+            (remote_filename, remote_filename)
+        ran = false
         try:
             self.subprocess_popen(commandline)
+            ran = true
+            self.subprocess_popen(commandline2)
         except Exception as exc:
-            commandline = "[ -f /tmp/dupli-onedrive/%s ] && rm /tmp/dupli-onedrive/%s" % \
-            (remote_filename, remote_filename)
-            self.subprocess_popen(commandline)
+            self.subprocess_popen(commandline2) if not ran
             raise exc
 
     def _get(self, remote_filename, local_path):
